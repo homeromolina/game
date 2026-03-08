@@ -16,41 +16,46 @@ export default function GunboundAllStars() {
   const [power, setPower] = useState(50);
   const [wind, setWind] = useState(0);
   const [projectile, setProjectile] = useState(null);
-  const [explosions, setExplosions] = useState([]);
-  const [message, setMessage] = useState("");
+
   const [selectedChars, setSelectedChars] = useState([0, 1]);
   const [isBot, setIsBot] = useState([false, true]);
+  const [message, setMessage] = useState("");
   const [winner, setWinner] = useState(null);
-  const [particles, setParticles] = useState([]);
-  const [trail, setTrail] = useState([]);
   const [turnTransition, setTurnTransition] = useState(false);
-  const [clouds, setClouds] = useState([]);
-  const [stars, setStars] = useState([]);
+
   const [turnCount, setTurnCount] = useState(1);
   const [suddenDeath, setSuddenDeath] = useState(false);
-  const [floatingTexts, setFloatingTexts] = useState([]);
   const [items, setItems] = useState([]);
-  const [screenShake, setScreenShake] = useState({ x: 0, y: 0, intensity: 0 });
-  const [cameraZoom, setCameraZoom] = useState({ active: false, cx: 0, cy: 0, scale: 1, frames: 0 });
-  const [confetti, setConfetti] = useState([]);
   const [lastTrails, setLastTrails] = useState([[], []]);
-  const [recoil, setRecoil] = useState({ player: -1, frame: 0 });
 
   const animRef = useRef(null);
   const projectileRef = useRef(null);
   const trailRef = useRef([]);
+  const botTurnRef = useRef({ turn: 0, fired: false });
+  const vfxRef = useRef({
+    explosions: [],
+    particles: [],
+    floatingTexts: [],
+    confetti: [],
+    clouds: [],
+    stars: [],
+    screenShake: { x: 0, y: 0, intensity: 0 },
+    cameraZoom: { active: false, cx: 0, cy: 0, scale: 1, frames: 0 },
+    recoil: { player: -1, frame: 0 }
+  });
 
   useEffect(() => {
     const c = [];
     for (let i = 0; i < 8; i++) c.push({ x: Math.random() * CANVAS_W, y: 20 + Math.random() * 80, w: 60 + Math.random() * 80, speed: 0.1 + Math.random() * 0.3, opacity: 0.15 + Math.random() * 0.2 });
-    setClouds(c);
     const s = [];
     for (let i = 0; i < 40; i++) s.push({ x: Math.random() * CANVAS_W, y: Math.random() * 150, size: 0.5 + Math.random() * 1.5, twinkle: Math.random() * Math.PI * 2 });
-    setStars(s);
+
+    vfxRef.current.clouds = c;
+    vfxRef.current.stars = s;
   }, []);
 
   const addFloatingText = (x, y, text, color, size = 16) => {
-    setFloatingTexts(prev => [...prev, { x, y, text, color, size, life: 60, id: Math.random() }]);
+    vfxRef.current.floatingTexts.push({ x, y, text, color, size, life: 60, id: Math.random() });
   };
 
   const startGame = useCallback(() => {
@@ -67,20 +72,22 @@ export default function GunboundAllStars() {
     setPower(50);
     setWind((Math.random() - 0.5) * 4);
     setProjectile(null);
-    setExplosions([]);
-    setParticles([]);
-    setTrail([]);
     setWinner(null);
     setTurnCount(1);
     setSuddenDeath(false);
-    setFloatingTexts([]);
     setItems(generateItems(t));
-    setScreenShake({ x: 0, y: 0, intensity: 0 });
-    setCameraZoom({ active: false, cx: 0, cy: 0, scale: 1, frames: 0 });
-    setConfetti([]);
     setLastTrails([[], []]);
-    setRecoil({ player: -1, frame: 0 });
     setMessage("PLAYER 1 — FIRE!");
+
+    // Reset VFX state
+    vfxRef.current.explosions = [];
+    vfxRef.current.particles = [];
+    vfxRef.current.confetti = [];
+    vfxRef.current.floatingTexts = [];
+    vfxRef.current.screenShake = { x: 0, y: 0, intensity: 0 };
+    vfxRef.current.cameraZoom = { active: false, cx: 0, cy: 0, scale: 1, frames: 0 };
+    vfxRef.current.recoil = { player: -1, frame: 0 };
+
     setGameState("playing");
   }, [selectedChars]);
 
@@ -92,9 +99,8 @@ export default function GunboundAllStars() {
     const speed = power * 0.13;
     setPlayers(prev => prev.map((pl, i) => i === currentPlayer ? { ...pl, lastAngle: angle, lastPower: power } : pl));
     setProjectile({ x: p.x, y: p.y - 10, vx: Math.cos(rad) * speed * dir, vy: -Math.sin(rad) * speed });
-    setTrail([]);
     trailRef.current = [];
-    setRecoil({ player: currentPlayer, frame: 8 });
+    vfxRef.current.recoil = { player: currentPlayer, frame: 8 };
   }, [projectile, players, currentPlayer, angle, power, turnTransition]);
 
   useEffect(() => {
@@ -108,7 +114,7 @@ export default function GunboundAllStars() {
     const step = () => {
       if (!alive) return;
 
-      const nextStep = calculateProjectileStep(px, py, vx, vy, wind, terrain, players, CANVAS_W, CANVAS_H);
+      const nextStep = calculateProjectileStep(px, py, vx, vy, wind, terrain, players, currentPlayer, CANVAS_W, CANVAS_H);
       px = nextStep.px;
       py = nextStep.py;
       vx = nextStep.vx;
@@ -117,7 +123,6 @@ export default function GunboundAllStars() {
       trailPoints.push({ x: px, y: py, age: 0 });
       if (trailPoints.length > 120) trailPoints.shift();
       trailRef.current = trailPoints;
-      setTrail([...trailPoints]);
 
       if (nextStep.outOfBounds) {
         alive = false;
@@ -148,9 +153,13 @@ export default function GunboundAllStars() {
     if (gameState !== "playing" || turnTransition || !!projectile || !players[currentPlayer]) return;
 
     if (isBot[currentPlayer]) {
+      if (botTurnRef.current.turn === turnCount && botTurnRef.current.fired) return;
+
       const botTimer = setTimeout(() => {
         const targetIdx = 1 - currentPlayer;
         setMessage("BOT IS THINKING... 🤖");
+
+        botTurnRef.current = { turn: turnCount, fired: true };
 
         const botRes = calculateBotShot(players[currentPlayer], players[targetIdx], wind, terrain, players, currentPlayer);
 
@@ -162,24 +171,22 @@ export default function GunboundAllStars() {
       }, 1500);
       return () => clearTimeout(botTimer);
     }
-  }, [gameState, currentPlayer, turnTransition, projectile, isBot, players, wind, terrain, fire]);
+  }, [gameState, currentPlayer, turnTransition, projectile, isBot, players, wind, terrain, fire, turnCount]);
 
   const handleHit = (hx, hy) => {
     const charData = CHARACTERS[players[currentPlayer].char];
     const radius = charData.explosionRadius;
 
-    setExplosions(prev => [...prev, { x: hx, y: hy, radius, frame: 0, maxFrames: 40 }]);
-    setScreenShake({ x: 0, y: 0, intensity: 12 });
-    setCameraZoom({ active: true, cx: hx, cy: hy, scale: 1.3, frames: 0 });
+    vfxRef.current.explosions.push({ x: hx, y: hy, radius, frame: 0, maxFrames: 40 });
+    vfxRef.current.screenShake = { x: 0, y: 0, intensity: 12 };
+    vfxRef.current.cameraZoom = { active: true, cx: hx, cy: hy, scale: 1.3, frames: 0 };
 
-    const newParts = [];
     for (let i = 0; i < 50; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 1 + Math.random() * 6;
       const isDirt = Math.random() > 0.35;
-      newParts.push({ x: hx, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3, life: 30 + Math.random() * 30, color: isDirt ? (Math.random() > 0.5 ? "#5a4a2a" : "#3b5e2f") : (Math.random() > 0.5 ? "#ff6b35" : "#ffd166") });
+      vfxRef.current.particles.push({ x: hx, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3, life: 30 + Math.random() * 30, color: isDirt ? (Math.random() > 0.5 ? "#5a4a2a" : "#3b5e2f") : (Math.random() > 0.5 ? "#ff6b35" : "#ffd166") });
     }
-    setParticles(prev => [...prev, ...newParts]);
     setTerrain(prev => destroyTerrain(prev, hx, hy, radius));
 
     // Destroy items in explosion radius
@@ -188,9 +195,7 @@ export default function GunboundAllStars() {
     // Calculate Damage Using Physics Engine
     const { updatedPlayers, newFloatingTexts } = applyExplosionDamage(hx, hy, radius, players, charData, suddenDeath);
 
-    newFloatingTexts.forEach(ft => {
-      setFloatingTexts(prev => [...prev, { ...ft, life: 60, id: Math.random() }]);
-    });
+    newFloatingTexts.forEach(ft => addFloatingText(ft.x, ft.y, ft.text, ft.color, ft.size));
     setPlayers(updatedPlayers);
     setProjectile(null);
 
@@ -216,11 +221,9 @@ export default function GunboundAllStars() {
       setMessage(`🏆 PLAYER ${w + 1} (${CHARACTERS[updatedPlayers[w].char].name}) WINS!`);
       setGameState("gameover");
       // Confetti
-      const conf = [];
       for (let i = 0; i < 100; i++) {
-        conf.push({ x: CANVAS_W / 2, y: CANVAS_H / 2, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 10 - 2, color: ["#ff6b6b", "#ffd166", "#4ade80", "#60a5fa", "#c084fc", "#fb923c"][Math.floor(Math.random() * 6)], life: 120 + Math.random() * 60, rot: Math.random() * 360, rotSpeed: (Math.random() - 0.5) * 10, size: 3 + Math.random() * 5 });
+        vfxRef.current.confetti.push({ x: CANVAS_W / 2, y: CANVAS_H / 2, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 10 - 2, color: ["#ff6b6b", "#ffd166", "#4ade80", "#60a5fa", "#c084fc", "#fb923c"][Math.floor(Math.random() * 6)], life: 120 + Math.random() * 60, rot: Math.random() * 360, rotSpeed: (Math.random() - 0.5) * 10, size: 3 + Math.random() * 5 });
       }
-      setConfetti(conf);
     } else {
       setTimeout(() => nextTurn(), 1200);
     }
@@ -242,12 +245,14 @@ export default function GunboundAllStars() {
       setCurrentPlayer(nextP);
       setPlayers(prev => {
         const p = prev[nextP];
-        setAngle(p.lastAngle);
-        setPower(p.lastPower);
+        setTimeout(() => {
+          setAngle(p.lastAngle);
+          setPower(p.lastPower);
+        }, 0);
         return prev.map((pl, i) => i === nextP ? { ...pl, fuel: FUEL_MAX, prevY: pl.y } : pl);
       });
-      setTrail([]);
       setTurnTransition(false);
+      botTurnRef.current = { turn: newTurn, fired: false };
       setMessage(`PLAYER ${nextP + 1} — FIRE!`);
       if (newTurn % 4 === 0 && terrain) {
         setItems(prev => prev.length < 3 ? [...prev, ...generateItems(terrain)] : prev);
@@ -284,18 +289,20 @@ export default function GunboundAllStars() {
       setItems(prevItems => {
         const collected = prevItems.filter(it => Math.abs(it.x - newX) < 20);
         const remaining = prevItems.filter(it => Math.abs(it.x - newX) >= 20);
-        collected.forEach(it => {
-          if (it.type === "hp") {
-            setPlayers(pp => pp.map((pl, j) => j === currentPlayer ? { ...pl, hp: Math.min(pl.maxHp, pl.hp + 20) } : pl));
-            addFloatingText(newX, newY - 40, "+20 HP", "#4ade80", 16);
-          } else if (it.type === "power") {
-            setPower(MAX_POWER);
-            addFloatingText(newX, newY - 40, "MAX POWER!", "#ffd166", 16);
-          } else if (it.type === "shield") {
-            setPlayers(pp => pp.map((pl, j) => j === currentPlayer ? { ...pl, shield: true } : pl));
-            addFloatingText(newX, newY - 40, "SHIELD ON!", "#60a5fa", 16);
-          }
-        });
+        setTimeout(() => {
+          collected.forEach(it => {
+            if (it.type === "hp") {
+              setPlayers(pp => pp.map((pl, j) => j === currentPlayer ? { ...pl, hp: Math.min(pl.maxHp, pl.hp + 20) } : pl));
+              addFloatingText(newX, newY - 40, "+20 HP", "#4ade80", 16);
+            } else if (it.type === "power") {
+              setPower(MAX_POWER);
+              addFloatingText(newX, newY - 40, "MAX POWER!", "#ffd166", 16);
+            } else if (it.type === "shield") {
+              setPlayers(pp => pp.map((pl, j) => j === currentPlayer ? { ...pl, shield: true } : pl));
+              addFloatingText(newX, newY - 40, "SHIELD ON!", "#60a5fa", 16);
+            }
+          });
+        }, 0);
         return remaining;
       });
       return { ...p, x: newX, y: newY, fuel: p.fuel - 1, facing: dir === 1 ? 1 : -1 };
@@ -316,23 +323,25 @@ export default function GunboundAllStars() {
       frame++;
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
+      const vfx = vfxRef.current;
+
       ctx.save();
-      if (screenShake.intensity > 0) {
-        const sx = (Math.random() - 0.5) * screenShake.intensity;
-        const sy = (Math.random() - 0.5) * screenShake.intensity;
+      if (vfx.screenShake.intensity > 0) {
+        const sx = (Math.random() - 0.5) * vfx.screenShake.intensity;
+        const sy = (Math.random() - 0.5) * vfx.screenShake.intensity;
         ctx.translate(sx, sy);
-        setScreenShake(prev => ({ ...prev, intensity: prev.intensity * 0.9 }));
+        vfx.screenShake.intensity *= 0.9;
       }
 
-      if (cameraZoom.active && cameraZoom.frames < 30) {
-        const progress = cameraZoom.frames / 30;
+      if (vfx.cameraZoom.active && vfx.cameraZoom.frames < 30) {
+        const progress = vfx.cameraZoom.frames / 30;
         const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        const s = 1 + (cameraZoom.scale - 1) * (1 - eased);
-        ctx.translate(cameraZoom.cx * (1 - s), cameraZoom.cy * (1 - s));
+        const s = 1 + (vfx.cameraZoom.scale - 1) * (1 - eased);
+        ctx.translate(vfx.cameraZoom.cx * (1 - s), vfx.cameraZoom.cy * (1 - s));
         ctx.scale(s, s);
-        setCameraZoom(prev => ({ ...prev, frames: prev.frames + 1 }));
-      } else if (cameraZoom.active) {
-        setCameraZoom({ active: false, cx: 0, cy: 0, scale: 1, frames: 0 });
+        vfx.cameraZoom.frames += 1;
+      } else if (vfx.cameraZoom.active) {
+        vfx.cameraZoom = { active: false, cx: 0, cy: 0, scale: 1, frames: 0 };
       }
 
       const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
@@ -341,7 +350,7 @@ export default function GunboundAllStars() {
       ctx.fillStyle = skyGrad;
       ctx.fillRect(-20, -20, CANVAS_W + 40, CANVAS_H + 40);
 
-      stars.forEach(s => {
+      vfx.stars.forEach(s => {
         ctx.globalAlpha = (Math.sin(frame * 0.05 + s.twinkle) * 0.5 + 0.5) * 0.8;
         ctx.fillStyle = "#fff";
         ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
@@ -351,7 +360,7 @@ export default function GunboundAllStars() {
       ctx.fillStyle = "#ffe8b8"; ctx.shadowColor = "#ffe8b8"; ctx.shadowBlur = 30;
       ctx.beginPath(); ctx.arc(780, 60, 28, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
 
-      clouds.forEach(c => {
+      vfx.clouds.forEach(c => {
         c.x += c.speed; if (c.x > CANVAS_W + 100) c.x = -c.w;
         ctx.globalAlpha = c.opacity; ctx.fillStyle = "#d4a574";
         ctx.beginPath(); ctx.ellipse(c.x, c.y, c.w / 2, 12, 0, 0, Math.PI * 2); ctx.fill();
@@ -393,6 +402,7 @@ export default function GunboundAllStars() {
         ctx.stroke(); ctx.setLineDash([]);
       }
 
+      const trail = trailRef.current;
       trail.forEach((t, i) => {
         ctx.globalAlpha = (i / trail.length) * 0.7;
         ctx.fillStyle = i > trail.length * 0.7 ? "#ff4400" : "#ffd166";
@@ -404,9 +414,9 @@ export default function GunboundAllStars() {
         const ch = CHARACTERS[p.char];
         const isActive = idx === currentPlayer && gameState === "playing";
         let recoilOff = 0;
-        if (recoil.player === idx && recoil.frame > 0) {
-          recoilOff = Math.sin(recoil.frame * 0.8) * recoil.frame * 0.5 * -p.facing;
-          setRecoil(prev => prev.player === idx ? { ...prev, frame: prev.frame - 0.3 } : prev);
+        if (vfx.recoil.player === idx && vfx.recoil.frame > 0) {
+          recoilOff = Math.sin(vfx.recoil.frame * 0.8) * vfx.recoil.frame * 0.5 * -p.facing;
+          vfx.recoil.frame -= 0.3;
         }
         const px = p.x + recoilOff;
 
@@ -450,8 +460,8 @@ export default function GunboundAllStars() {
         ctx.fillStyle = "#ffff00"; ctx.beginPath(); ctx.arc(projectile.x, projectile.y, 2.5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
       }
 
-      setExplosions(prev => prev.map(e => ({ ...e, frame: e.frame + 1 })).filter(e => e.frame < e.maxFrames));
-      explosions.forEach(e => {
+      vfx.explosions = vfx.explosions.map(e => ({ ...e, frame: e.frame + 1 })).filter(e => e.frame < e.maxFrames);
+      vfx.explosions.forEach(e => {
         const progress = e.frame / e.maxFrames, r = e.radius * (0.5 + progress * 0.5), alpha = 1 - progress;
         ctx.globalAlpha = alpha * 0.4; ctx.fillStyle = "#ff4500"; ctx.beginPath(); ctx.arc(e.x, e.y, r * 1.5, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = alpha * 0.8; const exGrad = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
@@ -459,20 +469,20 @@ export default function GunboundAllStars() {
         ctx.fillStyle = exGrad; ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
       });
 
-      setParticles(prev => prev.map(pt => ({ ...pt, x: pt.x + pt.vx, y: pt.y + pt.vy, vy: pt.vy + 0.1, life: pt.life - 1 })).filter(pt => pt.life > 0));
-      particles.forEach(pt => { ctx.globalAlpha = pt.life / 50; ctx.fillStyle = pt.color; ctx.beginPath(); ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2); ctx.fill(); });
+      vfx.particles = vfx.particles.map(pt => ({ ...pt, x: pt.x + pt.vx, y: pt.y + pt.vy, vy: pt.vy + 0.1, life: pt.life - 1 })).filter(pt => pt.life > 0);
+      vfx.particles.forEach(pt => { ctx.globalAlpha = pt.life / 50; ctx.fillStyle = pt.color; ctx.beginPath(); ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2); ctx.fill(); });
       ctx.globalAlpha = 1;
 
-      setFloatingTexts(prev => prev.map(ft => ({ ...ft, y: ft.y - 0.8, life: ft.life - 1 })).filter(ft => ft.life > 0));
-      floatingTexts.forEach(ft => {
+      vfx.floatingTexts = vfx.floatingTexts.map(ft => ({ ...ft, y: ft.y - 0.8, life: ft.life - 1 })).filter(ft => ft.life > 0);
+      vfx.floatingTexts.forEach(ft => {
         ctx.globalAlpha = Math.min(1, ft.life / 20); ctx.fillStyle = ft.color; ctx.font = `bold ${ft.size}px 'Segoe UI', sans-serif`; ctx.textAlign = "center";
         ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 3; ctx.strokeText(ft.text, ft.x, ft.y); ctx.fillText(ft.text, ft.x, ft.y);
       });
       ctx.globalAlpha = 1;
 
-      if (confetti.length > 0) {
-        setConfetti(prev => prev.map(c => ({ ...c, x: c.x + c.vx, y: c.y + c.vy, vy: c.vy + 0.08, rot: c.rot + c.rotSpeed, life: c.life - 1 })).filter(c => c.life > 0));
-        confetti.forEach(c => {
+      if (vfx.confetti.length > 0) {
+        vfx.confetti = vfx.confetti.map(c => ({ ...c, x: c.x + c.vx, y: c.y + c.vy, vy: c.vy + 0.08, rot: c.rot + c.rotSpeed, life: c.life - 1 })).filter(c => c.life > 0);
+        vfx.confetti.forEach(c => {
           ctx.globalAlpha = Math.min(1, c.life / 30); ctx.fillStyle = c.color; ctx.save(); ctx.translate(c.x, c.y); ctx.rotate((c.rot * Math.PI) / 180);
           ctx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2); ctx.restore();
         });
@@ -498,7 +508,7 @@ export default function GunboundAllStars() {
     };
     render();
     return () => { running = false; };
-  }, [gameState, terrain, players, currentPlayer, projectile, angle, trail, turnTransition, explosions, particles, stars, clouds, wind, floatingTexts, confetti, lastTrails, items, screenShake, cameraZoom, suddenDeath, turnCount, recoil]);
+  }, [gameState, terrain, players, currentPlayer, projectile, angle, turnTransition, suddenDeath, turnCount, wind, items, message]);
 
   useEffect(() => {
     if (gameState !== "playing") return;
