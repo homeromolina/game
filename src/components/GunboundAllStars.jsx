@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { CANVAS_W, CANVAS_H, MAX_POWER, FUEL_MAX, CHARACTERS } from "../core/Constants";
 import { generateTerrain, destroyTerrain, generateItems } from "../core/TerrainEngine";
 import { calculateProjectileStep, applyExplosionDamage } from "../core/PhysicsEngine";
+import { calculateBotShot } from "../core/BotBrain";
 import Menu from "./Menu";
 import { HUDTop, HUDBottom } from "./HUD";
 
@@ -18,6 +19,7 @@ export default function GunboundAllStars() {
   const [explosions, setExplosions] = useState([]);
   const [message, setMessage] = useState("");
   const [selectedChars, setSelectedChars] = useState([0, 1]);
+  const [isBot, setIsBot] = useState([false, true]);
   const [winner, setWinner] = useState(null);
   const [particles, setParticles] = useState([]);
   const [trail, setTrail] = useState([]);
@@ -141,6 +143,27 @@ export default function GunboundAllStars() {
     return () => { alive = false; cancelAnimationFrame(animRef.current); };
   }, [projectile ? 1 : 0]);
 
+  // Bot Turn Logic
+  useEffect(() => {
+    if (gameState !== "playing" || turnTransition || !!projectile || !players[currentPlayer]) return;
+
+    if (isBot[currentPlayer]) {
+      const botTimer = setTimeout(() => {
+        const targetIdx = 1 - currentPlayer;
+        setMessage("BOT IS THINKING... 🤖");
+
+        const botRes = calculateBotShot(players[currentPlayer], players[targetIdx], wind, terrain, players, currentPlayer);
+
+        // Show angle adjustments before firing
+        setAngle(botRes.angle);
+        setPower(botRes.power);
+
+        setTimeout(() => fire(), 700);
+      }, 1500);
+      return () => clearTimeout(botTimer);
+    }
+  }, [gameState, currentPlayer, turnTransition, projectile, isBot, players, wind, terrain, fire]);
+
   const handleHit = (hx, hy) => {
     const charData = CHARACTERS[players[currentPlayer].char];
     const radius = charData.explosionRadius;
@@ -250,7 +273,7 @@ export default function GunboundAllStars() {
   }, [terrain]);
 
   const moveTank = useCallback((dir) => {
-    if (projectile || turnTransition || gameState !== "playing") return;
+    if (projectile || turnTransition || gameState !== "playing" || isBot[currentPlayer]) return;
     setPlayers(prev => prev.map((p, i) => {
       if (i !== currentPlayer) return p;
       if (p.fuel <= 0) return p;
@@ -480,7 +503,7 @@ export default function GunboundAllStars() {
   useEffect(() => {
     if (gameState !== "playing") return;
     const handleKey = (e) => {
-      if (projectile || turnTransition) return;
+      if (projectile || turnTransition || isBot[currentPlayer]) return;
       switch (e.key) {
         case "ArrowUp": setAngle(a => Math.min(90, a + 2)); break;
         case "ArrowDown": setAngle(a => Math.max(0, a - 2)); break;
@@ -496,7 +519,7 @@ export default function GunboundAllStars() {
   }, [gameState, fire, projectile, turnTransition, moveTank]);
 
   if (gameState === "menu") {
-    return <Menu startGame={startGame} selectedChars={selectedChars} setSelectedChars={setSelectedChars} />;
+    return <Menu startGame={startGame} selectedChars={selectedChars} setSelectedChars={setSelectedChars} isBot={isBot} setIsBot={setIsBot} />;
   }
 
   return (

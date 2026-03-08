@@ -4,7 +4,7 @@ import { GRAVITY } from './Constants.js';
  * Calculates the next step of a projectile.
  * Returns { px, py, vx, vy, hitGround, outOfBounds, hitPlayerIdx, hitDistance }
  */
-export function calculateProjectileStep(px, py, vx, vy, wind, terrain, players, CANVAS_W, CANVAS_H) {
+export function calculateProjectileStep(px, py, vx, vy, wind, terrain, players, currentPlayerIdx, CANVAS_W, CANVAS_H) {
     // Apply physics
     vx += wind * 0.002;
     vy += GRAVITY;
@@ -30,6 +30,7 @@ export function calculateProjectileStep(px, py, vx, vy, wind, terrain, players, 
 
     // Check player collision
     for (let i = 0; i < players.length; i++) {
+        if (i === currentPlayerIdx) continue;
         const dist = Math.sqrt((px - players[i].x) ** 2 + (py - players[i].y) ** 2);
         if (dist < 20) {
             hitPlayerIdx = i;

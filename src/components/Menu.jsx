@@ -1,7 +1,7 @@
 import React from "react";
 import { CANVAS_W, CANVAS_H, CHARACTERS } from "../core/Constants";
 
-export default function Menu({ startGame, selectedChars, setSelectedChars }) {
+export default function Menu({ startGame, selectedChars, setSelectedChars, isBot, setIsBot }) {
     return (
         <div style={{ width: CANVAS_W, height: CANVAS_H, margin: "0 auto", background: "linear-gradient(180deg, #0b1026 0%, #1a1a40 30%, #2d1b69 60%, #8b3a62 85%, #d4654a 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI', sans-serif", position: "relative", overflow: "hidden", borderRadius: 12, border: "2px solid #3a2a5c" }}>
             <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
@@ -21,7 +21,15 @@ export default function Menu({ startGame, selectedChars, setSelectedChars }) {
             <div style={{ display: "flex", gap: 40, margin: "20px 0" }}>
                 {[0, 1].map(pIdx => (
                     <div key={pIdx} style={{ textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, letterSpacing: 2, marginBottom: 8 }}>PLAYER {pIdx + 1}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ color: "#aaa", fontSize: 11, fontWeight: 700, letterSpacing: 2 }}>PLAYER {pIdx + 1}</div>
+                            {pIdx === 1 && (
+                                <button onClick={() => setIsBot([false, !isBot[1]])}
+                                    style={{ background: isBot[1] ? "#dc2626" : "#2563eb", border: "none", borderRadius: 4, padding: "2px 6px", color: "#fff", fontSize: 10, cursor: "pointer", fontWeight: "bold" }}>
+                                    {isBot[1] ? "🤖 BOT" : "👤 HUMAN"}
+                                </button>
+                            )}
+                        </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                             {CHARACTERS.map((ch, cIdx) => (
                                 <button key={cIdx} onClick={() => setSelectedChars(s => { const n = [...s]; n[pIdx] = cIdx; return n; })}
